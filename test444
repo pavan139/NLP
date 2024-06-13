@@ -1,0 +1,1 @@
+spd_values = [row[spd] for spd in (SPD1, SPD2, SPD_Letter) if row[spd]] # Join non-empty SPD values with '|' or return an empty string if no values are present. return ' | '.join(spd_values) if spd_values else ''
