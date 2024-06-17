@@ -1,1 +1,38 @@
-https://api.qualtrics.com/5d17de1a27084-example-use-cases-walkthrough
+# sql_statements.py
+
+class SQLStatements:
+    @staticmethod
+    def get_t_per_id_test(customer_column='CUSTOMER_ID'):
+        return f"""
+        INSERT INTO t_per_id_test (
+            SSN_N,
+            REC_ID,
+            {customer_column}
+        ) VALUES (
+            ?,
+            CONVERT(VARCHAR(250), HASHBYTES('SHA2_256', ?), 2),
+            ?
+        )
+        """
+
+    @staticmethod
+    def get_t_prk_part_id_test():
+        return """
+        INSERT INTO t_prk_part_id_test (
+            REC_ID,
+            HIRE_DT,
+            TERM_DT,
+            REHIRE_DT,
+            FLEX_1_DT,
+            FLEX_2_DT,
+            FLEX_3_DT,
+            FLEX_4_DT,
+            FLEX_5_DT,
+            FLEX_1_CHR,
+            FLEX_2_CHR,
+            FLEX_3_CHR,
+            FLEX_4_CHR,
+            FLEX_5_CHR,
+            REC_INS_DT
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """
