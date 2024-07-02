@@ -28,7 +28,7 @@ def load_data_from_folder(folder_path):
 
 def is_valid_date(date_str):
     if pd.isna(date_str) or not date_str:
-        return True  # Consider null/NaN/empty string as valid to preserve original data
+        return False  # Consider null/NaN/empty string as invalid
     try:
         datetime.strptime(date_str, '%m/%d/%Y')
         return True
@@ -39,44 +39,43 @@ def process_group(group):
     if len(group) == 1:
         return group
 
-    date_columns = ['Hire Date', 'Termination Date', 'Date of Rehire', 'Match Eligibility Date']
-    
-    # Check if all date fields are equal
-    if all(group[col].nunique() == 1 for col in date_columns if col in group.columns):
-        logger.info(f"All dates are equal for SSN: {group['SSN'].iloc[0]}. Keeping one record.")
-        return group.iloc[:1]
+    result = pd.DataFrame(columns=group.columns)
 
-    processed_group = group.iloc[:1].copy()
+    for ssn in group['SSN'].unique():
+        ssn_group = group[group['SSN'] == ssn]
+        
+        processed = ssn_group.iloc[0].copy()
+        
+        # Process date fields
+        date_columns = ['Date of Hire', 'Date of Termination', 'Date of Rehire', 'Match Eligibility Date']
+        for col in date_columns:
+            if col in ssn_group.columns:
+                valid_dates = ssn_group[ssn_group[col].apply(is_valid_date)][col]
+                if not valid_dates.empty:
+                    if col in ['Date of Hire', 'Match Eligibility Date']:
+                        processed[col] = valid_dates.min()
+                    else:
+                        processed[col] = valid_dates.max()
+        
+        # Fill blank fields
+        for col in ssn_group.columns:
+            if pd.isna(processed[col]) and not ssn_group[col].isna().all():
+                processed[col] = ssn_group[col].fillna('').iloc[0]
 
-    for col in date_columns:
-        if col in group.columns:
-            valid_dates = group[group[col].apply(is_valid_date)][col]
-            if not valid_dates.empty:
-                if col in ['Hire Date', 'Match Eligibility Date']:
-                    processed_group[col] = valid_dates.min()
-                else:
-                    processed_group[col] = valid_dates.max()
-            else:
-                processed_group[col] = group[col].iloc[0]  # Keep original if no valid dates
+        result = result.append(processed, ignore_index=True)
 
-    # Fill blank fields with non-blank values from other rows
-    for column in group.columns:
-        if pd.isna(processed_group[column].iloc[0]) and not group[column].isna().all():
-            processed_group[column] = group[column].fillna(method='ffill').iloc[0]
-
-    return processed_group
+    return result
 
 def process_data(df):
-    return df.groupby('SSN', group_keys=False).apply(process_group)
+    return df.groupby('SSN', group_keys=False).apply(process_group).reset_index(drop=True)
 
 def filter_eligibility_dates(df):
     if 'Match Eligibility Date' in df.columns:
         cutoff_date = '08/16/2024'
-        mask = df['Match Eligibility Date'].apply(lambda x: pd.to_datetime(x, errors='coerce') <= pd.to_datetime(cutoff_date) if pd.notna(x) and is_valid_date(x) else True)
-        filtered_df = df[mask]
-        if len(filtered_df) < len(df):
-            logger.info(f"Filtered out {len(df) - len(filtered_df)} records with Match Eligibility Date after {cutoff_date}")
-        return filtered_df
+        df['filter_flag'] = df['Match Eligibility Date'].apply(
+            lambda x: pd.to_datetime(x, errors='coerce') <= pd.to_datetime(cutoff_date) if pd.notna(x) and is_valid_date(x) else True
+        )
+        logger.info(f"Flagged {(~df['filter_flag']).sum()} records with Match Eligibility Date after {cutoff_date}")
     return df
 
 def main(folder_path):
@@ -92,7 +91,7 @@ def main(folder_path):
         logger.info(f"After processing: {len(df)} records")
         
         df = filter_eligibility_dates(df)
-        logger.info(f"After filtering eligibility dates: {len(df)} records")
+        logger.info(f"After flagging eligibility dates: {len(df)} records")
         
         output_file = 'processed_fidelity_data.csv'
         df.to_csv(output_file, index=False)
