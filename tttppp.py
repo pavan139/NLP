@@ -27,6 +27,8 @@ def load_data_from_folder(folder_path):
     return combined_df
 
 def is_valid_date(date_str):
+    if pd.isna(date_str):
+        return True  # Consider null/NaN as valid to preserve original data
     if not date_str:
         return True  # Consider empty string as valid to preserve original data
     try:
@@ -39,27 +41,42 @@ def is_valid_ssn(ssn):
     return bool(ssn)  # Consider any non-empty string as valid
 
 def process_group(group):
-    if not all(is_valid_ssn(ssn) for ssn in group['SSN']):
-        logger.warning(f"Invalid SSN found in group: {group['SSN'].iloc[0]}")
-        return group
-    
-    date_columns = ['Hire Date', 'Termination Date', 'Date of Rehire', 'Match Eligibility Date']
-    if not all(is_valid_date(date) for col in date_columns for date in group[col] if col in group):
-        logger.warning(f"Invalid date found in group with SSN: {group['SSN'].iloc[0]}")
-        return group
-    
     if len(group) == 1:
+        # Check for null Hire Date and/or Termination Date
+        if pd.isna(group['Hire Date'].iloc[0]) or pd.isna(group['Termination Date'].iloc[0]):
+            logger.info(f"Removing record with null Hire Date or Termination Date: {group['SSN'].iloc[0]}")
+            return pd.DataFrame()  # Return empty DataFrame to remove this record
         return group
-    
-    # Process only if all dates are valid
-    for col in date_columns:
-        if col in group:
-            if col in ['Hire Date', 'Match Eligibility Date']:
-                group[col] = group[col].min()
-            else:
-                group[col] = group[col].max()
-    
-    return group.iloc[:1]  # Return only the first row after processing
+
+    # Check if all date fields are equal
+    date_columns = ['Hire Date', 'Termination Date', 'Date of Rehire', 'Match Eligibility Date']
+    if group[date_columns].nunique().eq(1).all():
+        logger.info(f"Removing duplicate account as all dates are equal: {group['SSN'].iloc[0]}")
+        return group.iloc[:1]
+
+    # Process date fields
+    processed_group = group.iloc[:1].copy()  # Start with the first row
+
+    # Hire Date: use the earliest
+    processed_group['Hire Date'] = group['Hire Date'].min()
+
+    # Termination Date: use the latest
+    processed_group['Termination Date'] = group['Termination Date'].max()
+
+    # Date of Rehire: use the latest
+    if 'Date of Rehire' in group.columns:
+        processed_group['Date of Rehire'] = group['Date of Rehire'].max()
+
+    # Match Eligibility Date: use the earliest
+    if 'Match Eligibility Date' in group.columns:
+        processed_group['Match Eligibility Date'] = group['Match Eligibility Date'].min()
+
+    # Fill blank fields with non-blank values from other rows
+    for column in group.columns:
+        if pd.isna(processed_group[column].iloc[0]) and not group[column].isna().all():
+            processed_group[column] = group[column].fillna(method='ffill').iloc[0]
+
+    return processed_group
 
 def process_data(df):
     return df.groupby('SSN', group_keys=False).apply(process_group)
@@ -67,7 +84,7 @@ def process_data(df):
 def filter_eligibility_dates(df):
     if 'Match Eligibility Date' in df.columns:
         cutoff_date = '08/16/2024'
-        mask = df['Match Eligibility Date'].apply(lambda x: x <= cutoff_date if is_valid_date(x) else True)
+        mask = df['Match Eligibility Date'].apply(lambda x: pd.to_datetime(x, errors='coerce') <= pd.to_datetime(cutoff_date) if pd.notna(x) else True)
         filtered_df = df[mask]
         if len(filtered_df) < len(df):
             logger.info(f"Filtered out {len(df) - len(filtered_df)} records with Match Eligibility Date after {cutoff_date}")
@@ -92,6 +109,10 @@ def main(folder_path):
         # Filter eligibility dates
         df = filter_eligibility_dates(df)
         logger.info(f"After filtering eligibility dates: {len(df)} records")
+        
+        # Remove records with null Hire Date or Termination Date
+        df = df.dropna(subset=['Hire Date', 'Termination Date'])
+        logger.info(f"After removing null Hire Date or Termination Date: {len(df)} records")
         
         # Save processed data
         output_file = 'processed_fidelity_data.csv'
