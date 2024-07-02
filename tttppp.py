@@ -39,7 +39,7 @@ def process_group(group):
     if len(group) == 1:
         return group
 
-    result = pd.DataFrame(columns=group.columns)
+    result = []
 
     for ssn in group['SSN'].unique():
         ssn_group = group[group['SSN'] == ssn]
@@ -62,12 +62,14 @@ def process_group(group):
             if pd.isna(processed[col]) and not ssn_group[col].isna().all():
                 processed[col] = ssn_group[col].fillna('').iloc[0]
 
-        result = result.append(processed, ignore_index=True)
+        result.append(processed)
 
-    return result
+    return pd.DataFrame(result)
 
 def process_data(df):
-    return df.groupby('SSN', group_keys=False).apply(process_group).reset_index(drop=True)
+    grouped = df.groupby('SSN')
+    processed_groups = [process_group(group) for _, group in grouped]
+    return pd.concat(processed_groups, ignore_index=True)
 
 def filter_eligibility_dates(df):
     if 'Match Eligibility Date' in df.columns:
