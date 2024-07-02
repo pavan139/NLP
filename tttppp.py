@@ -1,26 +1,36 @@
 import pandas as pd
 import logging
 from datetime import datetime
+import os
+import glob
 
 # Set up logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-def load_data(file_path):
-    try:
-        return pd.read_csv(file_path, keep_default_na=False)
-    except Exception as e:
-        logger.error(f"Error loading data: {str(e)}")
-        raise
+def load_data_from_folder(folder_path):
+    all_files = glob.glob(os.path.join(folder_path, "*.csv"))
+    df_list = []
+    for filename in all_files:
+        try:
+            df = pd.read_csv(filename, keep_default_na=False)
+            df_list.append(df)
+            logger.info(f"Loaded file: {filename}")
+        except Exception as e:
+            logger.error(f"Error loading file {filename}: {str(e)}")
+    
+    if not df_list:
+        raise ValueError("No CSV files found in the specified folder")
+    
+    combined_df = pd.concat(df_list, ignore_index=True)
+    logger.info(f"Combined {len(df_list)} CSV files. Total records: {len(combined_df)}")
+    return combined_df
 
 def is_valid_date(date_str):
     if not date_str:
         return True  # Consider empty string as valid to preserve original data
     try:
-        month, day, year = map(int, date_str.split('/'))
-        if month < 1 or month > 12 or day < 1 or day > 31 or year < 1900 or year > 9999:
-            return False
-        datetime(year, month, day)
+        datetime.strptime(date_str, '%m/%d/%Y')
         return True
     except ValueError:
         return False
@@ -64,13 +74,12 @@ def filter_eligibility_dates(df):
         return filtered_df
     return df
 
-def main(file_path):
+def main(folder_path):
     try:
         logger.info("Starting data processing")
         
-        # Load data
-        df = load_data(file_path)
-        logger.info(f"Loaded {len(df)} records")
+        # Load and combine data from all CSV files in the folder
+        df = load_data_from_folder(folder_path)
         
         # Ensure SSN column exists
         if 'SSN' not in df.columns:
@@ -93,5 +102,5 @@ def main(file_path):
         logger.error(f"An error occurred during processing: {str(e)}")
 
 if __name__ == "__main__":
-    file_path = "path_to_your_input_file.csv"  # Replace with actual file path
-    main(file_path)
+    folder_path = "path_to_your_csv_folder"  # Replace with actual folder path
+    main(folder_path)
