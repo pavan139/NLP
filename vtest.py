@@ -75,3 +75,20 @@ result.to_csv('pivoted_output.csv', index=False)
 
 # Print the output to check
 print(result.head())
+
+
+
+# Concatenate horizontally
+result = pd.concat([prev_pivot, date_pivot], axis=1)
+
+# Correctly interleave 'Prev' and 'Date'
+# Create new column order to interleave 'Prev' and 'Date'
+new_columns = []
+max_index = max(prev_pivot.columns[-1].split('_')[-1], date_pivot.columns[-1].split('_')[-1], key=int)
+for i in range(1, int(max_index) + 1):
+    if f'Prev_{i}' in result.columns:
+        new_columns.append(f'Prev_{i}')
+    if f'Date_{i}' in result.columns:
+        new_columns.append(f'Date_{i}')
+
+result = result[new_columns]
