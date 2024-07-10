@@ -65,3 +65,31 @@ incomplete_date_df.to_csv(os.path.join(OUTPUT_DIR, 'Removed_Data.csv'), index=Fa
 
 # Log successful save
 logger.info("Data files saved successfully.")
+
+
+
+# Create a boolean mask for rows to keep
+mask = ~df_aggregated[['Date of Hire', 'Date of Termination']].isna().all(axis=1)
+
+# Split the DataFrame
+df_kept = df_aggregated[mask]
+df_removed = df_aggregated[~mask]
+
+# Reset the index for both DataFrames
+df_kept.reset_index(drop=True, inplace=True)
+df_removed.reset_index(drop=True, inplace=True)
+
+
+
+
+cutoff_date = pd.to_datetime('08/16/2024')
+
+# Ensure 'Match Eligibility Date' is in datetime format
+df_aggregated['Match Eligibility Date'] = pd.to_datetime(df_aggregated['Match Eligibility Date'], errors='coerce')
+
+# Create a boolean mask for dates greater than the cutoff
+mask = df_aggregated['Match Eligibility Date'] > cutoff_date
+
+# Use numpy.where for efficient conditional assignment
+df_aggregated['Match Eligibility Date'] = np.where(mask, pd.NaT, df_aggregated['Match Eligibility Date'])
+
