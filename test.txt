@@ -1,0 +1,37 @@
+Setup File Paths and Read Data:
+
+Finds the first CSV file in the source directory specified by args.PMSourceFileDir.
+Reads the secrets from secrets.ini file.
+Reads the CSV file into a DataFrame df.
+Column Mapping and Initial Checks:
+
+Maps columns in the DataFrame based on a predefined mapping.
+Checks for a "Trailer Record" in the SSN column and sends an email if not found, then exits.
+Invalid SSN Handling:
+
+Identifies and isolates invalid SSNs in the DataFrame.
+Data Preparation:
+
+Maps and formats columns, checks SSNs, and handles dates.
+Adds additional metadata columns like PLAN_N, FILE_NAME, and FILE_SOURCE.
+Insert Data into SQLMI:
+
+Establishes a connection to the SQL Managed Instance (SQLMI).
+Loads the prepared DataFrame into a staging table (T_R810_PER_HOURS_STG).
+Closes the connection.
+Handle Trailer Records:
+
+If trailer records are present, maps and prepares them.
+Loads the trailer records into a separate table (T_R810_TRAILER_HOURS).
+Pre-load Audit Check:
+
+Runs an audit query (v_R810_audit_1_pre_load) and checks for errors.
+If errors are found, sends an email, truncates the staging table, and deletes trailer records from the database.
+Store Procedures Execution:
+
+Reads stored procedures from a JSON file.
+Executes the procedures if the audit is successful.
+Post-load Audit Check:
+
+Runs a post-load audit query (v_R810_audit_3_post_load) and checks for data consistency.
+Sends an email and cleans up data if the audit check fails.
