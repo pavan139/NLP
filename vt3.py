@@ -1,9 +1,7 @@
 import pandas as pd
 import numpy as np
-import time
 
-# Assume df1 and df2 are your large dataframes
-
+# Assume df1 and df2 are your dataframes
 # Convert 'date' columns to datetime
 df1['Payment Date'] = pd.to_datetime(df1['Payment Date'])
 df2['TXN_TRD_D'] = pd.to_datetime(df2['TXN_TRD_D'])
@@ -12,97 +10,96 @@ df2['TXN_TRD_D'] = pd.to_datetime(df2['TXN_TRD_D'])
 df1_nonzero = df1[df1['amount'] != 0].copy()
 df1_zero = df1[df1['amount'] == 0].copy()
 
-# Initialize variables for chunk processing
-chunk_size = 100000  # Adjust based on your system's memory capacity
-total_rows = len(df1_nonzero)
-total_chunks = (total_rows // chunk_size) + 1
+# **Step 1: Attempt Exact Matches**
 
-# Initialize a list to store results
-results = []
+# Merge on SSN_N and Payment Date
+exact_matches = pd.merge(
+    df1_nonzero,
+    df2,
+    left_on=['SSN_N', 'Payment Date'],
+    right_on=['SSN_N', 'TXN_TRD_D'],
+    how='left',
+    suffixes=('_df1', '_df2'),
+    indicator=True
+)
 
-# Start processing time
-start_time = time.time()
+# Rows where matches were found
+matched_exact = exact_matches[exact_matches['_merge'] == 'both'].copy()
+unmatched_exact = exact_matches[exact_matches['_merge'] == 'left_only'].copy()
 
-for i, start_row in enumerate(range(0, total_rows, chunk_size)):
-    end_row = min(start_row + chunk_size, total_rows)
-    df1_chunk = df1_nonzero.iloc[start_row:end_row].copy()
+# Drop the merge indicator
+matched_exact.drop(columns=['_merge'], inplace=True)
+unmatched_exact.drop(columns=['_merge', 'SUM(TXN_CASH_A)', 'Other_df2_Column', 'TXN_TRD_D'], errors='ignore', inplace=True)
 
-    # Begin processing the chunk
-    chunk_start_time = time.time()
+# **Step 2: Find Closest Date Matches Within 28 Days for Unmatched Rows**
 
-    # **Exact Matches**
+if not unmatched_exact.empty:
+    # Prepare unmatched df1 rows
+    unmatched_exact['key'] = unmatched_exact['SSN_N']
+    unmatched_exact['Payment_Date_minus_28'] = unmatched_exact['Payment Date'] - pd.Timedelta(days=28)
+    unmatched_exact['Payment_Date_plus_28'] = unmatched_exact['Payment Date'] + pd.Timedelta(days=28)
 
-    # Merge on SSN_N and Payment Date
-    exact_matches = pd.merge(
-        df1_chunk,
+    # Prepare df2 for matching
+    df2['key'] = df2['SSN_N']
+
+    # Merge to find potential matches
+    potential_matches = pd.merge(
+        unmatched_exact,
         df2,
-        left_on=['SSN_N', 'Payment Date'],
-        right_on=['SSN_N', 'TXN_TRD_D'],
-        how='left',
-        suffixes=('_df1', '_df2'),
-        indicator=True
+        on='key',
+        suffixes=('_df1', '_df2')
     )
 
-    # Separate matched and unmatched rows
-    matched = exact_matches[exact_matches['_merge'] == 'both'].copy()
-    unmatched = exact_matches[exact_matches['_merge'] == 'left_only'].copy()
+    # Filter potential matches within the date range
+    potential_matches = potential_matches[
+        (potential_matches['TXN_TRD_D'] >= potential_matches['Payment_Date_minus_28']) &
+        (potential_matches['TXN_TRD_D'] <= potential_matches['Payment_Date_plus_28'])
+    ]
 
-    # Drop the merge indicator
-    matched.drop(columns=['_merge'], inplace=True)
-    unmatched.drop(columns=['_merge', 'SUM(TXN_CASH_A)', 'Other_df2_Column', 'TXN_TRD_D'], errors='ignore', inplace=True)
+    # Calculate the absolute difference in days
+    potential_matches['date_diff'] = (potential_matches['TXN_TRD_D'] - potential_matches['Payment Date']).abs()
 
-    # **Closest Date Matches Within 28 Days**
+    # **Assign Unique df2 Rows to df1 Rows**
 
-    if not unmatched.empty:
-        # Sort df2 for merge_asof
-        df2_sorted = df2.sort_values('TXN_TRD_D')
+    # Sort to prioritize closest matches
+    potential_matches.sort_values(['date_diff'], inplace=True)
 
-        # Sort unmatched_chunk
-        unmatched_sorted = unmatched.sort_values('Payment Date')
+    # Remove duplicates based on df2 index to ensure each df2 row is used only once
+    potential_matches = potential_matches.drop_duplicates(subset=['index_df2'])
 
-        # Perform merge_asof to find closest dates
-        closest_matches = pd.merge_asof(
-            unmatched_sorted,
-            df2_sorted,
-            left_on='Payment Date',
-            right_on='TXN_TRD_D',
-            by='SSN_N',
-            tolerance=pd.Timedelta(days=28),
-            direction='nearest',
-            suffixes=('_df1', '_df2')
-        )
+    # Also ensure that each df1 row gets the best available df2 row
+    potential_matches = potential_matches.drop_duplicates(subset=['index_df1'])
 
-        # Separate rows where a match was found
-        matched_closest = closest_matches[closest_matches['TXN_TRD_D'].notna()]
-        unmatched_final = closest_matches[closest_matches['TXN_TRD_D'].isna()]
+    # Get indices of matched df1 and df2 rows
+    matched_indices_df1 = potential_matches['index_df1'].tolist()
+    matched_indices_df2 = potential_matches['index_df2'].tolist()
 
-        # Combine exact and closest matches
-        matched = pd.concat([matched, matched_closest], ignore_index=True)
-    else:
-        unmatched_final = unmatched.copy()
+    # Update availability in df2
+    df2.loc[matched_indices_df2, 'available'] = False
 
-    # Append NaNs for df2 columns in unmatched_final
-    unmatched_final[df2.columns.difference(unmatched_final.columns)] = np.nan
+    # Prepare matched and unmatched dataframes
+    matched_closest = potential_matches.copy()
+    unmatched_final = unmatched_exact[~unmatched_exact.index.isin(matched_indices_df1)].copy()
+else:
+    matched_closest = pd.DataFrame()
+    unmatched_final = unmatched_exact.copy()
 
-    # Combine matched and unmatched_final
-    chunk_result = pd.concat([matched, unmatched_final], ignore_index=True)
+# **Step 3: Combine All Matched Rows**
 
-    # Append chunk_result to results
-    results.append(chunk_result)
+# Combine exact and closest matches
+matched = pd.concat([matched_exact, matched_closest], ignore_index=True)
 
-    # Progress update
-    elapsed_time = time.time() - start_time
-    progress = (end_row) / total_rows * 100
-    estimated_total_time = elapsed_time / (end_row) * total_rows
-    remaining_time = estimated_total_time - elapsed_time
-    print(f"Processed chunk {i + 1}/{total_chunks} ({progress:.1f}%). Estimated time remaining: {remaining_time:.1f} seconds.")
+# For unmatched_final, append NaNs for df2 columns
+unmatched_final[df2.columns.difference(unmatched_final.columns)] = np.nan
 
-# After processing all chunks, concatenate results
-final_result = pd.concat(results + [df1_zero], ignore_index=True)
+# For amount == 0 rows, append NaNs for df2 columns
+df1_zero[df2.columns.difference(df1_zero.columns)] = np.nan
 
-# Optional: Drop helper columns if any
-final_result.drop(columns=['TXN_TRD_D'], errors='ignore', inplace=True)
+# Combine all results
+final_result = pd.concat([matched, unmatched_final, df1_zero], ignore_index=True)
+
+# Optional: Drop helper columns
+final_result.drop(columns=['Payment_Date_minus_28', 'Payment_Date_plus_28', 'date_diff', 'key', 'index_df1', 'index_df2'], errors='ignore', inplace=True)
 
 # Display or save the result
-print("\nProcessing complete.")
 print(final_result)
