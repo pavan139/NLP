@@ -1,5 +1,6 @@
 import pandas as pd
 import numpy as np
+import time
 
 # Sample data (replace this with your actual data)
 data_df1 = {
@@ -53,9 +54,16 @@ df2['available'] = True
 results = []
 
 # Iterate over each row in df1
+start_time = time.time()
+total_rows = len(df1)
 for idx1, row1 in df1.iterrows():
     ssn = row1['SSN_N']
     date = row1['Payment Date']
+    
+    # Print progress
+    elapsed_time = time.time() - start_time
+    progress = (idx1 + 1) / total_rows * 100
+    print(f"Processing row {idx1 + 1}/{total_rows} ({progress:.2f}%) - Elapsed Time: {elapsed_time:.2f} seconds")
     
     # Step 1: Attempt to find an exact match
     exact_match = df2[
