@@ -2,8 +2,42 @@ import pandas as pd
 import numpy as np
 import networkx as nx
 from concurrent.futures import ProcessPoolExecutor
-from tqdm import tqdm
+from tqdm.notebook import tqdm
 
+# Sample data (replace this with your actual data)
+data_df1 = {
+    'SSN_N': ['123-45-6789'] * 30,
+    'Payment Date': [
+        '04/14/2023', '04/28/2023', '05/12/2023', '05/26/2023', '06/09/2023',
+        '06/23/2023', '07/07/2023', '07/21/2023', '08/04/2023', '08/18/2023',
+        '09/01/2023', '09/15/2023', '09/29/2023', '10/13/2023', '10/27/2023',
+        '11/09/2023', '11/22/2023', '12/08/2023', '12/21/2023', '01/05/2024',
+        '01/19/2024', '02/02/2024', '02/16/2024', '03/01/2024', '03/15/2024',
+        '03/29/2024', '04/12/2024', '04/26/2024', '05/10/2024', '05/24/2024'
+    ]
+}
+
+data_df2 = {
+    'SSN_N': ['123-45-6789'] * 25,
+    'TXN_TRD_D': [
+        '04/24/2023', '04/28/2023', '05/12/2023', '05/26/2023', '06/09/2023',
+        '06/23/2023', '07/07/2023', '07/21/2023', '08/04/2023', '08/18/2023',
+        '09/01/2023', '09/15/2023', '09/29/2023', '10/13/2023', '10/27/2023',
+        '11/09/2023', '11/22/2023', '12/08/2023', '12/21/2023', '03/01/2024',
+        '03/15/2024', '04/01/2024', '04/12/2024', '04/26/2024', '05/10/2024'
+    ],
+    'SUM(TXN_CASH_A)': [
+        120.92, 118.65, 116.39, 120.92, 120.92,
+        120.92, 126.97, 126.59, 99.38, 108.20,
+        108.83, 119.83, 107.88, 108.83, 108.83,
+        119.11, 93.90, 99.38, 108.83, 13.33,
+        76.13, 116.42, 61.55, 109.37, 88.50
+    ]
+}
+
+# Create DataFrames
+df1 = pd.DataFrame(data_df1)
+df2 = pd.DataFrame(data_df2)
 
 # Convert 'date' columns to datetime
 df1['Payment Date'] = pd.to_datetime(df1['Payment Date'], format='%m/%d/%Y')
@@ -120,12 +154,12 @@ result_list = []
 with ProcessPoolExecutor() as executor:  # Use ProcessPoolExecutor for better parallelization
     futures = []
     ssn_list = df1['SSN_N'].unique()
-    for ssn in tqdm(ssn_list, desc="Processing SSNs", miniters=len(ssn_list) // 100):
+    for ssn in tqdm(ssn_list, desc="Processing SSNs"):
         df1_ssn = df1[df1['SSN_N'] == ssn]
         df2_ssn = df2[(df2['SSN_N'] == ssn) & (df2['available'])]
         futures.append(executor.submit(match_ssn, ssn, df1_ssn, df2_ssn))
 
-    for future in tqdm(futures, desc="Collecting Results", miniters=len(futures) // 100):
+    for future in tqdm(futures, desc="Collecting Results"):
         result_list.append(future.result())
 
 # Combine all results
