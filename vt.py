@@ -1,6 +1,8 @@
 import pandas as pd
 import numpy as np
 import networkx as nx
+from concurrent.futures import ProcessPoolExecutor
+from tqdm import tqdm
 
 # Sample data (replace this with your actual data)
 data_df1 = {
@@ -50,6 +52,7 @@ df2['available'] = True
 
 # Function to perform matching per SSN_N
 def match_ssn(ssn, df1_ssn, df2_ssn):
+    # (The original matching logic here remains unchanged)
     # Reset index to get sequential indices
     df1_ssn = df1_ssn.reset_index(drop=True)
     df2_ssn = df2_ssn.reset_index(drop=True)
@@ -146,13 +149,18 @@ def match_ssn(ssn, df1_ssn, df2_ssn):
 
     return result
 
-# Apply the matching function per SSN_N
+# Apply the matching function per SSN_N in parallel with progress bar
 result_list = []
-for ssn in df1['SSN_N'].unique():
-    df1_ssn = df1[df1['SSN_N'] == ssn]
-    df2_ssn = df2[(df2['SSN_N'] == ssn) & (df2['available'])]
-    result_ssn = match_ssn(ssn, df1_ssn, df2_ssn)
-    result_list.append(result_ssn)
+with ProcessPoolExecutor() as executor:  # Use ProcessPoolExecutor for better parallelization
+    futures = []
+    ssn_list = df1['SSN_N'].unique()
+    for ssn in tqdm(ssn_list, desc="Processing SSNs", miniters=len(ssn_list) // 100):
+        df1_ssn = df1[df1['SSN_N'] == ssn]
+        df2_ssn = df2[(df2['SSN_N'] == ssn) & (df2['available'])]
+        futures.append(executor.submit(match_ssn, ssn, df1_ssn, df2_ssn))
+
+    for future in tqdm(futures, desc="Collecting Results", miniters=len(futures) // 100):
+        result_list.append(future.result())
 
 # Combine all results
 result_df = pd.concat(result_list, ignore_index=True)
