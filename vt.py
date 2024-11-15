@@ -1,7 +1,6 @@
 import pandas as pd
 import numpy as np
 import networkx as nx
-from concurrent.futures import ThreadPoolExecutor
 
 # Sample data (replace this with your actual data)
 data_df1 = {
@@ -51,7 +50,6 @@ df2['available'] = True
 
 # Function to perform matching per SSN_N
 def match_ssn(ssn, df1_ssn, df2_ssn):
-    # (The original matching logic here remains unchanged)
     # Reset index to get sequential indices
     df1_ssn = df1_ssn.reset_index(drop=True)
     df2_ssn = df2_ssn.reset_index(drop=True)
@@ -148,17 +146,13 @@ def match_ssn(ssn, df1_ssn, df2_ssn):
 
     return result
 
-# Apply the matching function per SSN_N in parallel
+# Apply the matching function per SSN_N
 result_list = []
-with ThreadPoolExecutor() as executor:
-    futures = []
-    for ssn in df1['SSN_N'].unique():
-        df1_ssn = df1[df1['SSN_N'] == ssn]
-        df2_ssn = df2[(df2['SSN_N'] == ssn) & (df2['available'])]
-        futures.append(executor.submit(match_ssn, ssn, df1_ssn, df2_ssn))
-
-    for future in futures:
-        result_list.append(future.result())
+for ssn in df1['SSN_N'].unique():
+    df1_ssn = df1[df1['SSN_N'] == ssn]
+    df2_ssn = df2[(df2['SSN_N'] == ssn) & (df2['available'])]
+    result_ssn = match_ssn(ssn, df1_ssn, df2_ssn)
+    result_list.append(result_ssn)
 
 # Combine all results
 result_df = pd.concat(result_list, ignore_index=True)
