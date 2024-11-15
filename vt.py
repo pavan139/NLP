@@ -56,14 +56,16 @@ results = []
 # Iterate over each row in df1
 start_time = time.time()
 total_rows = len(df1)
+progress_interval = max(1, total_rows // 100)  # Print progress at every 1% completion
 for idx1, row1 in df1.iterrows():
     ssn = row1['SSN_N']
     date = row1['Payment Date']
     
-    # Print progress
-    elapsed_time = time.time() - start_time
-    progress = (idx1 + 1) / total_rows * 100
-    print(f"Processing row {idx1 + 1}/{total_rows} ({progress:.2f}%) - Elapsed Time: {elapsed_time:.2f} seconds")
+    # Print progress at defined intervals
+    if (idx1 + 1) % progress_interval == 0 or idx1 == total_rows - 1:
+        elapsed_time = time.time() - start_time
+        progress = (idx1 + 1) / total_rows * 100
+        print(f"Processing row {idx1 + 1}/{total_rows} ({progress:.2f}%) - Elapsed Time: {elapsed_time:.2f} seconds")
     
     # Step 1: Attempt to find an exact match
     exact_match = df2[
