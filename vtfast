@@ -1,51 +1,43 @@
-import pandas as pd
-import numpy as np
-
-def join_feedback_with_payments_optimized(df1, df2):
+# Debugging and refining the optimized function
+def join_feedback_with_payments_optimized_fixed(df1, df2):
     # Pre-sort both DataFrames
-    df1_sorted = df1.sort_values(by=['SSN_N', 'Payment Date']).reset_index(drop=True)
-    df2_sorted = df2.sort_values(by=['SSN_N', 'FDBCK_SENT_D']).reset_index(drop=True)
+    df1 = df1.sort_values(by=['SSN_N', 'Payment Date']).reset_index(drop=True)
+    df2 = df2.sort_values(by=['SSN_N', 'FDBCK_SENT_D']).reset_index(drop=True)
     
     # Add a 28-day cutoff to df1
-    df1_sorted['Cutoff Date'] = df1_sorted['Payment Date'] - pd.Timedelta(days=28)
+    df1['Cutoff Date'] = df1['Payment Date'] - pd.Timedelta(days=28)
     
-    # Create NumPy arrays for faster operations
-    ssn_df1 = df1_sorted['SSN_N'].to_numpy()
-    payment_dates = df1_sorted['Payment Date'].to_numpy()
-    cutoff_dates = df1_sorted['Cutoff Date'].to_numpy()
+    # Create NumPy arrays for faster filtering and selection
+    ssn_df1 = df1['SSN_N'].values
+    cutoff_date = df1['Cutoff Date'].values
+
+    ssn_df2 = df2['SSN_N'].values
+    fdbck_sent_d = df2['FDBCK_SENT_D'].values
+    amt_val_q = df2['AMT_VAL_Q'].values
     
-    ssn_df2 = df2_sorted['SSN_N'].to_numpy()
-    feedback_dates = df2_sorted['FDBCK_SENT_D'].to_numpy()
-    amt_values = df2_sorted['AMT_VAL_Q'].to_numpy()
+    # Create output arrays
+    result_amt_val_q = np.full(len(df1), None, dtype=object)
+    result_fdbck_sent_d = np.full(len(df1), None, dtype=object)
     
-    # Initialize result arrays
-    result_amt_val_q = np.empty(len(df1_sorted), dtype=object)
-    result_fdbck_sent_d = np.empty(len(df1_sorted), dtype=object)
+    # Iterate through df1 and find the best match in df2
+    for i in range(len(df1)):
+        valid_rows = (ssn_df2 == ssn_df1[i]) & (fdbck_sent_d < cutoff_date[i])
+        if np.any(valid_rows):
+            best_match_idx = np.argmax(fdbck_sent_d[valid_rows])  # Index of the greatest FDBCK_SENT_D
+            valid_indices = np.where(valid_rows)[0]
+            best_idx = valid_indices[best_match_idx]
+            result_amt_val_q[i] = amt_val_q[best_idx]
+            result_fdbck_sent_d[i] = fdbck_sent_d[best_idx]
     
-    # Pointer for df2
-    j = 0
-    for i in range(len(df1_sorted)):
-        # Handle missing Payment Date or SSN_N
-        if pd.isna(payment_dates[i]) or pd.isna(ssn_df1[i]):
-            result_amt_val_q[i] = None
-            result_fdbck_sent_d[i] = None
-            continue
-        
-        # Move the pointer in df2 to match SSN_N and cutoff conditions
-        while j < len(df2_sorted) and (ssn_df2[j] < ssn_df1[i] or (ssn_df2[j] == ssn_df1[i] and feedback_dates[j] >= cutoff_dates[i])):
-            j += 1
-        
-        # Check for a valid feedback record
-        if j > 0 and ssn_df2[j - 1] == ssn_df1[i] and feedback_dates[j - 1] < cutoff_dates[i]:
-            result_amt_val_q[i] = amt_values[j - 1]
-            result_fdbck_sent_d[i] = feedback_dates[j - 1]
-        else:
-            result_amt_val_q[i] = None
-            result_fdbck_sent_d[i] = None
+    # Assign results back to the DataFrame
+    df1['AMT_VAL_Q'] = result_amt_val_q
+    df1['FDBCK_SENT_D'] = result_fdbck_sent_d
+    df1.drop(columns=['Cutoff Date'], inplace=True)
     
-    # Assign results back to df1
-    df1_sorted['AMT_VAL_Q'] = result_amt_val_q
-    df1_sorted['FDBCK_SENT_D'] = result_fdbck_sent_d
-    df1_sorted.drop(columns=['Cutoff Date'], inplace=True)
-    
-    return df1_sorted
+    return df1
+
+# Execute the fixed optimized function
+result_df_optimized_fixed = join_feedback_with_payments_optimized_fixed(df1_test, df2_test)
+
+# Display the result
+tools.display_dataframe_to_user(name="Debugged and Fixed Optimized Test Results", dataframe=result_df_optimized_fixed)
