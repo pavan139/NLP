@@ -1,127 +1,113 @@
 import pandas as pd
 import numpy as np
-from scipy.optimize import linear_sum_assignment
 
-# Ensure 'SSN_N' columns are of the same type
-df1['SSN_N'] = df1['SSN_N'].astype(str)
-df2['SSN_N'] = df2['SSN_N'].astype(str)
+# Sample data (replace this with your actual data)
+data_df1 = {
+    'SSN_N': ['123-45-6789'] * 30,
+    'Payment Date': [
+        '04/14/2023', '04/28/2023', '05/12/2023', '05/26/2023', '06/09/2023',
+        '06/23/2023', '07/07/2023', '07/21/2023', '08/04/2023', '08/18/2023',
+        '09/01/2023', '09/15/2023', '09/29/2023', '10/13/2023', '10/27/2023',
+        '11/09/2023', '11/22/2023', '12/08/2023', '12/21/2023', '01/05/2024',
+        '01/19/2024', '02/02/2024', '02/16/2024', '03/01/2024', '03/15/2024',
+        '03/29/2024', '04/12/2024', '04/26/2024', '05/10/2024', '05/24/2024'
+    ]
+}
 
-# Convert 'Payment Date' and 'TXN_TRD_D' columns to datetime
-df1['Payment Date'] = pd.to_datetime(df1['Payment Date'])
-df2['TXN_TRD_D'] = pd.to_datetime(df2['TXN_TRD_D'])
+data_df2 = {
+    'SSN_N': ['123-45-6789'] * 25,
+    'TXN_TRD_D': [
+        '04/24/2023', '04/28/2023', '05/12/2023', '05/26/2023', '06/09/2023',
+        '06/23/2023', '07/07/2023', '07/21/2023', '08/04/2023', '08/18/2023',
+        '09/01/2023', '09/15/2023', '09/29/2023', '10/13/2023', '10/27/2023',
+        '11/09/2023', '11/22/2023', '12/08/2023', '12/21/2023', '03/01/2024',
+        '03/15/2024', '04/01/2024', '04/12/2024', '04/26/2024', '05/10/2024'
+    ],
+    'SUM(TXN_CASH_A)': [
+        120.92, 118.65, 116.39, 120.92, 120.92,
+        120.92, 126.97, 126.59, 99.38, 108.20,
+        108.83, 119.83, 107.88, 108.83, 108.83,
+        119.11, 93.90, 99.38, 108.83, 13.33,
+        76.13, 116.42, 61.55, 109.37, 88.50
+    ]
+}
 
-# Step 0: Sort df1 by 'Payment Date' to process dates in chronological order
+# Create DataFrames
+df1 = pd.DataFrame(data_df1)
+df2 = pd.DataFrame(data_df2)
+
+# Convert 'date' columns to datetime
+df1['Payment Date'] = pd.to_datetime(df1['Payment Date'], format='%m/%d/%Y')
+df2['TXN_TRD_D'] = pd.to_datetime(df2['TXN_TRD_D'], format='%m/%d/%Y')
+
+# Sort df1 by date to process dates in chronological order
 df1 = df1.sort_values('Payment Date').reset_index(drop=True)
 
-# **Add 'df2_index' to df2 before any merges**
-df2 = df2.reset_index().rename(columns={'index': 'df2_index'})
-df2['used'] = False
+# Optionally, sort df2 by date (for consistency and easier debugging)
+df2 = df2.sort_values('TXN_TRD_D').reset_index(drop=True)
 
-# Step 1: Perform an exact merge on 'SSN_N' and 'Payment Date'
-exact_matches = pd.merge(
-    df1,
-    df2[['SSN_N', 'TXN_TRD_D', 'SUM(TXN_CASH_A)', 'df2_index']],
-    left_on=['SSN_N', 'Payment Date'],
-    right_on=['SSN_N', 'TXN_TRD_D'],
-    how='left',
-    indicator=True
-)
+# Add an 'available' column to df2 to track used rows
+df2['available'] = True
 
-# Mark df2 rows used in exact matches
-exact_matches_matched = exact_matches[exact_matches['_merge'] == 'both']
-matched_df2_indices = exact_matches_matched['df2_index'].dropna().astype(int)
-df2.loc[matched_df2_indices, 'used'] = True
+# Initialize a list to store the result rows
+results = []
 
-# Separate matched and unmatched df1 rows
-exact_matches_df1 = exact_matches_matched.drop(columns=['_merge', 'TXN_TRD_D', 'df2_index'])
-unmatched_df1 = exact_matches[exact_matches['_merge'] == 'left_only'].drop(columns=['SUM(TXN_CASH_A)', '_merge', 'TXN_TRD_D', 'df2_index'])
-
-# Step 2: Find potential approximate matches for unmatched df1 rows
-# Available df2 rows (not used in exact matches)
-available_df2 = df2[~df2['used']].copy()
-
-# **Reset index and keep track of original indices**
-available_df2 = available_df2.reset_index(drop=True)
-available_df2['available_df2_idx'] = available_df2.index
-
-# **Reset index for unmatched_df1**
-unmatched_df1 = unmatched_df1.reset_index(drop=True)
-unmatched_df1['unmatched_df1_idx'] = unmatched_df1.index
-
-# Merge unmatched df1 with available df2 on 'SSN_N'
-potential_matches = unmatched_df1.merge(
-    available_df2[['SSN_N', 'TXN_TRD_D', 'SUM(TXN_CASH_A)', 'df2_index', 'available_df2_idx']],
-    on='SSN_N'
-)
-
-# Calculate absolute date differences
-potential_matches['date_diff'] = (potential_matches['Payment Date'] - potential_matches['TXN_TRD_D']).abs()
-
-# Filter matches where date difference ≤28 days
-potential_matches = potential_matches[potential_matches['date_diff'] <= pd.Timedelta(days=28)]
-
-# **Check if potential_matches is empty**
-if not potential_matches.empty:
-    # Create a cost matrix for the assignment problem
-    num_unmatched_df1 = len(unmatched_df1)
-    num_available_df2 = len(available_df2)
-    cost_matrix = np.full((num_unmatched_df1, num_available_df2), np.inf)
-
-    # Fill the cost matrix
-    for _, row in potential_matches.iterrows():
-        i = row['unmatched_df1_idx']
-        j = row['available_df2_idx']
-        cost = row['date_diff'].days  # Use days as cost
-        cost_matrix[i, j] = cost
-
-    # **Check if the cost matrix has any finite values**
-    if np.isfinite(cost_matrix).any():
-        # Solve the assignment problem
-        row_ind, col_ind = linear_sum_assignment(cost_matrix)
-
-        # Extract valid assignments where cost is not infinity
-        valid_assignments = cost_matrix[row_ind, col_ind] != np.inf
-        assigned_df1_indices = row_ind[valid_assignments]
-        assigned_df2_indices = col_ind[valid_assignments]
-
-        # Retrieve matched rows
-        matched_df1 = unmatched_df1.loc[assigned_df1_indices].reset_index(drop=True)
-        matched_df2 = available_df2.loc[assigned_df2_indices].reset_index(drop=True)
-
-        # Combine matched data
-        approximate_matches = pd.concat(
-            [matched_df1.reset_index(drop=True), matched_df2[['SUM(TXN_CASH_A)']].reset_index(drop=True)],
-            axis=1
-        )
-
-        # Mark df2 rows as used
-        matched_df2_indices = matched_df2['df2_index'].astype(int)
-        df2.loc[matched_df2_indices, 'used'] = True
+# Iterate over each row in df1
+for idx1, row1 in df1.iterrows():
+    ssn = row1['SSN_N']
+    date = row1['Payment Date']
+    
+    # Step 1: Attempt to find an exact match
+    exact_match = df2[
+        (df2['SSN_N'] == ssn) &
+        (df2['TXN_TRD_D'] == date) &
+        (df2['available'])
+    ]
+    
+    if not exact_match.empty:
+        # Use the first exact match found
+        matched_row = exact_match.iloc[0]
+        df2_index = matched_row.name
+        df2.at[df2_index, 'available'] = False  # Mark as used
+        
+        # Append the matched data
+        result_row = row1.to_dict()
+        result_row['SUM(TXN_CASH_A)'] = matched_row['SUM(TXN_CASH_A)']
+        results.append(result_row)
     else:
-        print("Cost matrix contains only infinite values. No feasible assignment.")
-        approximate_matches = pd.DataFrame(columns=unmatched_df1.columns.tolist() + ['SUM(TXN_CASH_A)'])
-        assigned_df1_indices = []
-else:
-    print("No potential matches found within 28 days.")
-    approximate_matches = pd.DataFrame(columns=unmatched_df1.columns.tolist() + ['SUM(TXN_CASH_A)'])
-    assigned_df1_indices = []
+        # Step 2: Find the closest date within 28 days
+        date_range = pd.Timedelta(days=28)
+        potential_matches = df2[
+            (df2['SSN_N'] == ssn) &
+            (df2['available']) &
+            (df2['TXN_TRD_D'] >= date - date_range) &
+            (df2['TXN_TRD_D'] <= date + date_range)
+        ]
+        
+        if not potential_matches.empty:
+            # Calculate the absolute difference in days
+            potential_matches = potential_matches.copy()
+            potential_matches['date_diff'] = (potential_matches['TXN_TRD_D'] - date).abs()
+            # Find the row with the smallest date difference
+            closest_match = potential_matches.loc[potential_matches['date_diff'].idxmin()]
+            df2_index = closest_match.name
+            df2.at[df2_index, 'available'] = False  # Mark as used
+            
+            # Append the matched data
+            result_row = row1.to_dict()
+            result_row['SUM(TXN_CASH_A)'] = closest_match['SUM(TXN_CASH_A)']
+            results.append(result_row)
+        else:
+            # No match found; append NaN for 'SUM(TXN_CASH_A)'
+            result_row = row1.to_dict()
+            result_row['SUM(TXN_CASH_A)'] = np.nan
+            results.append(result_row)
 
-# Step 3: Identify unmatched df1 rows after approximate matching
-remaining_unmatched_df1 = unmatched_df1[~unmatched_df1['unmatched_df1_idx'].isin(assigned_df1_indices)].copy()
-remaining_unmatched_df1['SUM(TXN_CASH_A)'] = np.nan
+# Create the final DataFrame from results
+result_df = pd.DataFrame(results)
 
-# Step 4: Combine all results
-result_df = pd.concat(
-    [
-        exact_matches_df1.reset_index(drop=True),
-        approximate_matches.reset_index(drop=True),
-        remaining_unmatched_df1.reset_index(drop=True)
-    ],
-    ignore_index=True
-)
-
-# Sort the result if needed
-result_df = result_df.sort_values(by=['SSN_N', 'Payment Date']).reset_index(drop=True)
+# Optional: Reorder columns if needed
+result_df = result_df[['SSN_N', 'Payment Date', 'SUM(TXN_CASH_A)']]
 
 # Display the result
 print(result_df)
